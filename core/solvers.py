@@ -1,9 +1,5 @@
 import numpy as np
 
-# ─────────────────────────────
-# Weighted Least Squares
-# ─────────────────────────────
-
 
 def weighted_least_squares(A, b, W_diag):
     WA = W_diag[:, None] * A
@@ -12,9 +8,6 @@ def weighted_least_squares(A, b, W_diag):
     return w
 
 
-# ─────────────────────────────
-# IRLS (L1)
-# ─────────────────────────────
 def irls_l1(A, b, max_iter=200, tol=1e-8, thresh=1e-6):
     w = np.linalg.lstsq(A, b, rcond=None)[0]
     history = []
@@ -26,8 +19,9 @@ def irls_l1(A, b, max_iter=200, tol=1e-8, thresh=1e-6):
         W_diag = np.maximum(np.abs(r), thresh) ** (-0.5)
         w_new = weighted_least_squares(A, b, W_diag)
 
-        if np.linalg.norm(w_new - w) / (1 + np.linalg.norm(w)) < tol:
+        if np.linalg.norm(w_new - w) / (1.0 + np.linalg.norm(w)) < tol:
             w = w_new
+            history.append(np.sum(np.abs(A @ w - b)))
             break
 
         w = w_new
@@ -35,9 +29,6 @@ def irls_l1(A, b, max_iter=200, tol=1e-8, thresh=1e-6):
     return w, np.array(history)
 
 
-# ─────────────────────────────
-# Smoothed Gradient (Pseudo-Huber)
-# ─────────────────────────────
 def smoothed_l1_grad(A, b, w, mu):
     r = A @ w - b
     return A.T @ (r / np.sqrt(r**2 + mu**2))
@@ -49,41 +40,58 @@ def smoothed_l1_obj(A, b, w, mu):
 
 
 def smoothed_gradient_l1(
-    A, b,
-    max_iter=500,
+    A,
+    b,
+    mu_init=0.5,
+    mu_decay=0.5,
+    mu_min=1e-6,
+    stage_max_iter=1000,
     tol=1e-8,
-    mu_init=1.0,
-    mu_decay=0.85,
-    mu_min=1e-8,
-    alpha0=1.0,
-    beta=0.5,
-    c=1e-4
 ):
+    """
+    Continuation scheme for L1 minimization using a smoothed objective.
+
+    Each stage solves a pseudo-Huber approximation with a smaller smoothing
+    parameter mu and warm-starts from the previous stage. The step size comes
+    from the smooth objective's Lipschitz constant, which keeps the updates
+    stable without using an external optimizer.
+    """
     w = np.linalg.lstsq(A, b, rcond=None)[0]
-    mu = mu_init
     history = []
 
-    for k in range(max_iter):
-        history.append(np.sum(np.abs(A @ w - b)))
+    gram = A.T @ A
+    spectral_radius = np.linalg.eigvalsh(gram).max()
+    mu = mu_init
 
-        grad = smoothed_l1_grad(A, b, w, mu)
-        grad_norm = np.linalg.norm(grad)
+    while True:
+        step = mu / max(spectral_radius, 1e-12)
+        t = 1.0
+        z = w.copy()
+        stage_history = []
 
-        if grad_norm < tol:
+        for iteration in range(stage_max_iter):
+            grad = smoothed_l1_grad(A, b, z, mu)
+            w_next = z - step * grad
+
+            t_next = 0.5 * (1.0 + np.sqrt(1.0 + 4.0 * t * t))
+            z = w_next + ((t - 1.0) / t_next) * (w_next - w)
+
+            w = w_next
+            t = t_next
+
+            true_obj = np.sum(np.abs(A @ w - b))
+            history.append(true_obj)
+            stage_history.append(true_obj)
+
+            if iteration >= 100:
+                old_obj = stage_history[-101]
+                if abs(old_obj - true_obj) / (1.0 + old_obj) < tol:
+                    break
+
+        if mu <= mu_min:
             break
 
-        f0 = smoothed_l1_obj(A, b, w, mu)
-        alpha = alpha0
+        mu = max(mu * mu_decay, mu_min)
 
-        for _ in range(60):
-            w_trial = w - alpha * grad
-            if smoothed_l1_obj(A, b, w_trial, mu) <= f0 - c * alpha * grad_norm**2:
-                break
-            alpha *= beta
-
-        w -= alpha * grad
-
-        if (k + 1) % 10 == 0:
-            mu = max(mu * mu_decay, mu_min)
-
+    history.append(np.sum(np.abs(A @ w - b)))
     return w, np.array(history)
