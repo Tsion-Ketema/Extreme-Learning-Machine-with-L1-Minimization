@@ -24,9 +24,9 @@ import os
 DATA_PATH = 'dataset/ML-CUP25-TR.csv'
 M = 100       # number of hidden neurons
 ACTIVATION = 'tanh'    # activation function: 'tanh', 'relu', 'sigmoid'
-EPS = 1e-6      # threshold: prevents 1/sqrt(|r|) exploding near zero
-TOL = 1e-6      # stop when ||w_new - w_old|| < TOL
-MAX_ITER = 500      # maximum IRLS iterations
+EPS = 1e-3      # threshold: prevents 1/sqrt(|r|) exploding near zero
+TOL = 1e-4      # stop when ||w_new - w_old|| < TOL
+MAX_ITER = 2000      # maximum IRLS iterations
 SEED = 42        # random seed for W1 (controls the random projection)
 TEST_FRAC = 0.1       # fraction of data held out for testing
 
@@ -275,6 +275,7 @@ for target_idx in range(n_targets):
         # Step 8f — compute M = X^T W_k^2 X
         # X_scaled = W_k @ X  so  X_scaled.T @ X_scaled = X^T W_k^2 X
         M_mat = X_scaled.T @ X_scaled                      # shape (M, M)
+        M_mat += 1e-8 * np.eye(M)                          # ridge regularization
 
         # Step 8g — compute b = X^T W_k^2 y_true
         b_vec = X_scaled.T @ y_scaled                      # shape (M,)
@@ -295,8 +296,17 @@ for target_idx in range(n_targets):
             print(f"  iter {k+1:4d}:  L1 loss = {l1:.4f}  "
                   f"||w_change|| = {delta:.2e}")
 
-        # Step 9 — check convergence: stop when w barely changes
-        if delta < TOL:
+        # Step 9 — check convergence (dual criterion)
+        w_converged = delta < TOL
+        loss_converged = False
+        if len(loss_history) >= 2:
+            prev_l1 = loss_history[-2]
+            cur_l1 = loss_history[-1]
+            if prev_l1 > 0:
+                rel_change = abs(prev_l1 - cur_l1) / prev_l1
+                loss_converged = rel_change < TOL
+
+        if w_converged or loss_converged:
             converged = True
             print(f"  Converged at iteration {k+1}!")
             break
