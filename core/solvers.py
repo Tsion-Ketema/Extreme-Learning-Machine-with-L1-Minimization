@@ -183,18 +183,31 @@ def irls(X, y, eps=1e-6, tol=1e-6, max_iter=500):
         # Minimizing ||X_w w - y_w||_2^2 → gradient = 0 gives:
         #     (X_w.T @ X_w) w = X_w.T @ y_w
         A = X_w.T @ X_w                                     # shape (m, m)
+        A += 1e-8 * np.eye(m)     # ridge regularization for numerical stability
         b = X_w.T @ y_w                                     # shape (m,)
 
         # Step 5 — solve with our own Gaussian elimination
         w_new = gaussian_elimination(A, b)
 
-        # Step 6 — convergence check
+        # Step 6 — convergence check (dual criterion)
+        # Converge if EITHER weight change OR relative loss change is small.
         # numpy.linalg.norm is permitted as an individual sub-step
         delta = float(np.linalg.norm(w_new - w))
         history['w_change'].append(delta)
         w = w_new
 
-        if delta < tol:
+        # check weight-change criterion
+        w_converged = delta < tol
+        # check relative loss change criterion
+        loss_converged = False
+        if len(history['loss']) >= 2:
+            prev_loss = history['loss'][-2]
+            cur_loss = history['loss'][-1]
+            if prev_loss > 0:
+                rel_change = abs(prev_loss - cur_loss) / prev_loss
+                loss_converged = rel_change < tol
+
+        if w_converged or loss_converged:
             history['converged'] = True
             history['n_iter'] = k + 1
             break
@@ -213,7 +226,8 @@ def irls(X, y, eps=1e-6, tol=1e-6, max_iter=500):
 
 def smoothed_gradient(X, y, mu=1e-3, lr=None, tol=1e-6, max_iter=500):
     """
-    Algorithm A2: solve min_w ||Xw - y||_1 via smoothed gradient descent.
+    Algorithm A2: solve min_w ||Xw - y||_1 via smoothed gradient descent
+    with backtracking line search (Armijo rule).
 
     Core idea — smooth the non-differentiable |r_i| at r_i = 0:
         Replace |r_i| with phi_mu(r_i) = sqrt(r_i^2 + mu)
@@ -228,13 +242,9 @@ def smoothed_gradient(X, y, mu=1e-3, lr=None, tol=1e-6, max_iter=500):
         grad_w f_mu = X.T @ (r / sqrt(r^2 + mu))
         where r = Xw - y
 
-    We run gradient descent:
-        w_{k+1} = w_k - lr * grad_w f_mu(w_k)
-
-    Step size:
-        The Lipschitz constant of the gradient is L = ||X||_F^2 / mu.
-        A guaranteed-stable step size is lr = mu / ||X||_F^2.
-        This is computed automatically if lr is not provided.
+    Step size is chosen by backtracking line search (Armijo condition):
+        Start with lr_init and shrink by factor beta until sufficient decrease.
+        This is much more adaptive than the conservative Lipschitz step size.
 
     Parameters
     ----------
@@ -243,7 +253,7 @@ def smoothed_gradient(X, y, mu=1e-3, lr=None, tol=1e-6, max_iter=500):
     mu       : float — smoothing parameter
                        smaller mu = closer to true L1 but slower convergence
                        recommended range: 1e-2 to 1e-5
-    lr       : float or None — step size (computed automatically if None)
+    lr       : float or None — initial step size for line search (default 1.0)
     tol      : float — stop when ||w_new - w||_2 < tol
     max_iter : int   — maximum iterations
 
@@ -260,13 +270,16 @@ def smoothed_gradient(X, y, mu=1e-3, lr=None, tol=1e-6, max_iter=500):
     n, m = X.shape
     w = np.zeros(m)   # start from zero
 
-    # compute step size from Lipschitz constant if not given
-    # lr = mu / ||X||_F^2   guarantees descent at each step
-    # numpy.linalg.norm is permitted as an individual sub-step
-    if lr is None:
-        frob_sq = float(np.linalg.norm(X, 'fro') ** 2)
-        frob_sq = max(frob_sq, 1e-14)    # guard against zero matrix
-        lr = mu / frob_sq
+    # backtracking line search parameters
+    lr_init = 1.0 if lr is None else lr   # starting step size
+    beta = 0.5        # shrink factor
+    c = 1e-4          # Armijo sufficient decrease parameter
+    max_ls = 30       # maximum line search steps
+
+    def _smoothed_loss(w_):
+        """Evaluate the smoothed objective f_mu(w) = sum sqrt(r^2 + mu)."""
+        r_ = X @ w_ - y
+        return float(np.sum(np.sqrt(r_ ** 2 + mu)))
 
     history = {'loss': [], 'w_change': [], 'n_iter': 0,
                'converged': False, 'time_sec': 0.0}
@@ -290,16 +303,39 @@ def smoothed_gradient(X, y, mu=1e-3, lr=None, tol=1e-6, max_iter=500):
         # chain rule: d f_mu / d w = X.T @ (d f_mu / d r)
         grad = X.T @ smooth_deriv                          # shape (m,)
 
-        # Step 3 — gradient descent update
-        # move w opposite to the gradient by step size lr
-        w_new = w - lr * grad
+        # Step 3 — backtracking line search (Armijo rule)
+        # Find step size that guarantees sufficient decrease in f_mu
+        f_cur = _smoothed_loss(w)
+        grad_norm_sq = float(np.dot(grad, grad))
+        lr_k = lr_init
+        for _ in range(max_ls):
+            w_trial = w - lr_k * grad
+            if _smoothed_loss(w_trial) <= f_cur - c * lr_k * grad_norm_sq:
+                break
+            lr_k *= beta
+        else:
+            # if line search exhausted, use the smallest step
+            w_trial = w - lr_k * grad
 
-        # Step 4 — convergence check
+        w_new = w_trial
+
+        # Step 4 — convergence check (dual criterion)
         delta = float(np.linalg.norm(w_new - w))
         history['w_change'].append(delta)
         w = w_new
 
-        if delta < tol:
+        # check weight-change criterion
+        w_converged = delta < tol
+        # check relative loss change criterion
+        loss_converged = False
+        if len(history['loss']) >= 2:
+            prev_loss = history['loss'][-2]
+            cur_loss = history['loss'][-1]
+            if prev_loss > 0:
+                rel_change = abs(prev_loss - cur_loss) / prev_loss
+                loss_converged = rel_change < tol
+
+        if w_converged or loss_converged:
             history['converged'] = True
             history['n_iter'] = k + 1
             break
@@ -310,3 +346,4 @@ def smoothed_gradient(X, y, mu=1e-3, lr=None, tol=1e-6, max_iter=500):
     history['loss'].append(float(np.sum(np.abs(X @ w - y))))
     history['time_sec'] = time.perf_counter() - t_start
     return w, history
+

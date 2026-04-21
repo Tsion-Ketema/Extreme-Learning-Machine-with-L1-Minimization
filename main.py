@@ -33,10 +33,10 @@ from viz.plots import (fig1_convergence,
 TRAIN_PATH = 'dataset/ML-CUP25-TR.csv'
 SEED = 42
 M_DEFAULT = 100      # hidden neurons
-EPS = 1e-6     # A1: IRLS threshold
-MU = 1e-3     # A2: smoothing parameter
-TOL = 1e-6     # convergence tolerance (both algorithms)
-MAX_ITER = 1000      # maximum iterations (both algorithms)
+EPS = 1e-3     # A1: IRLS threshold (larger eps dampens weight oscillation)
+MU = 1e-1     # A2: smoothing parameter (larger mu gives bigger step size)
+TOL = 1e-4     # convergence tolerance (both algorithms)
+MAX_ITER = 2000      # maximum iterations (both algorithms)
 TEST_FRAC = 0.1      # fraction of training data held out for evaluation
 
 # ── Load data ─────────────────────────────────────────────────────────────────
