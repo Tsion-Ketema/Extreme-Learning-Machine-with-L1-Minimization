@@ -1,87 +1,74 @@
-# Project 24: Extreme Learning Machine with L1 Minimisation
+# ELM with L1 Minimization via IRLS
 
-This project implements the model shown in the assignment:
+## Project structure
 
-- `(M)` Extreme Learning Machine with one hidden layer, fixed random hidden weights `W1`, and output weights `w`
-- `(A1)` Iteratively Reweighted Least Squares (IRLS) for `L1` minimisation
-- `(A2)` Smoothed-gradient minimisation of a pseudo-Huber approximation to the `L1` objective
-
-The code relies only on `numpy` and `matplotlib`.
-
-## Problem setup
-
-The regression model is
-
-`y = w sigma(W1 x)`
-
-where:
-
-- `W1` is a fixed random matrix for the hidden layer
-- `sigma` is an elementwise activation function
-- `w` is learned by minimising `||Xw - y||1`, with `X` the ELM feature matrix
-
-The default experiment uses:
-
-- `sigmoid` activation
-- `60` hidden units
-- hidden-weight scale `5.0`
-- `120` synthetic 1D samples
-- Gaussian noise plus `12%` outliers
-
-## Solvers
-
-### (A1) IRLS
-
-IRLS solves a sequence of weighted least-squares problems. At each step it uses the thresholded diagonal weights
-
-`|(Xw_k - y)_i|^(-1/2)`
-
-so residuals close to zero do not create unstable weights.
-
-### (A2) Smoothed Gradient
-
-The `L1` objective is approximated with the pseudo-Huber smoothing
-
-`f_mu(w) = sum_i (sqrt(r_i^2 + mu^2) - mu)`
-
-with residuals `r = Xw - y`. The implementation uses a continuation strategy: solve the smoother problem first, then progressively decrease `mu` while warm-starting each stage from the previous solution.
-
-## Running the project
-
-Run the canonical entrypoint:
-
-```bash
-python3 project24.py
+```
+elm_project/
+├── core/
+│   ├── __init__.py
+│   ├── activations.py     # tanh, relu, sigmoid
+│   ├── elm.py             # ELM hidden layer: W1 generation, X = sigma(Input @ W1.T)
+│   └── solvers.py         # IRLS algorithm (A1), L1 loss, L2 baseline
+├── dataset/
+│   ├── ML-CUP25-TR.csv    # training data (500 samples, 12 features, 4 targets)
+│   └── ML-CUP25-TS.csv    # blind test data (1000 samples, no targets)
+├── utils/
+│   ├── __init__.py
+│   ├── data.py            # load_cup, load_cup_test, train_test_split
+│   └── experiments.py     # 4 experiment functions (no plotting)
+├── viz/
+│   ├── __init__.py
+│   └── plots.py           # figure generation from experiment results
+├── figures/               # generated figures (created automatically)
+├── main.py                # entry point — run this
+└── README.md
 ```
 
-This prints the metric summary and saves the figure to `project24_results.png`.
+## File descriptions
 
-`main.py` is kept as a compatibility wrapper and runs the same pipeline.
+| File                   | What it does                                                                                                                                                                                               |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/activations.py`  | Activation functions: `tanh`, `relu`, `sigmoid`                                                                                                                                                            |
+| `core/elm.py`          | `random_hidden_weights()` generates W1. `build_feature_matrix()` computes X = sigma(Input @ W1.T). `predict()` computes X @ w. `predict_all_targets()` stacks 4 predictions into the final (n x 4) matrix. |
+| `core/solvers.py`      | `irls()` runs Algorithm A1 and returns w and convergence history. `l1_loss()` evaluates the objective. `l2_baseline()` computes the OLS solution for comparison.                                           |
+| `utils/data.py`        | `load_cup()` loads and standardizes training CSV. `load_cup_test()` loads blind test. `train_test_split()` splits into train/test.                                                                         |
+| `utils/experiments.py` | Four experiment functions returning result dicts (no plotting inside).                                                                                                                                     |
+| `viz/plots.py`         | Takes result dicts and writes PDF figures to `./figures/`.                                                                                                                                                 |
+| `main.py`              | Loads data, runs all 4 experiments, prints results, saves all figures.                                                                                                                                     |
 
-## Default run summary
+## How to run
 
-With the default configuration, the important expected behavior is:
+```bash
+# from the project root
+python main.py
+```
 
-- `IRLS` achieves the lowest training `L1` objective
-- `Smoothed Gradient` improves on the plain `L2` baseline
-- the figure shows that `L1` methods are less distorted by outliers than `L2`
+Figures are written to `./figures/`.
 
-After running the script, update the table below only if you intentionally change the configuration:
+## Shape summary
 
-| Method | Objective |
-| --- | ---: |
-| IRLS | `44.494` |
-| Smoothed Gradient | `49.865` |
-| L2 baseline | `51.523` |
+```
+Input  : (500 x 12)          — raw data, 500 samples, 12 features
+W1     : (m x 12)            — random, frozen after generation
+X      : (500 x m)           — feature matrix, 500 rows x m neurons
+w      : (m x 1)             — output weights, one vector per target
+y_hat  : (500 x 1)           — predictions for ONE target
+Y_hat  : (500 x 4)           — all 4 targets stacked column by column
+```
 
-## Output figure
+The (500 x 4) final matrix is built by running IRLS 4 times and stacking:
 
-The generated figure contains three panels:
+```python
+Y_hat = np.column_stack([X @ w1, X @ w2, X @ w3, X @ w4])
+```
 
-- regression fit on noisy data with highlighted outliers
-- convergence history of the true `L1` objective
-- residual distribution for `L2`, `IRLS`, and Smoothed Gradient
+## Key parameters
 
-## Interpretation
-
-The experiment is designed so that the `L2` baseline reacts strongly to outliers, while `L1`-based training is more robust. In the default run, `IRLS` gives the strongest fit in terms of the `L1` training objective, and the smoothed-gradient solver also improves on the `L2` baseline while staying within the assignment constraint of using a manually implemented optimisation method.
+| Parameter    | Default | Description                                       |
+| ------------ | ------- | ------------------------------------------------- |
+| `m`          | 100     | Number of hidden neurons                          |
+| `eps`        | 1e-6    | IRLS threshold (prevents division by zero)        |
+| `tol`        | 1e-6    | Convergence tolerance on weight change            |
+| `max_iter`   | 500     | Maximum IRLS iterations                           |
+| `activation` | tanh    | Hidden-layer activation (tanh / relu / sigmoid)   |
+| `TEST_FRAC`  | 0.1     | Fraction of training data held out for evaluation |
