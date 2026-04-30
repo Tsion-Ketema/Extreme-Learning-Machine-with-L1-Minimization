@@ -3,51 +3,34 @@ core/activations.py
 -------------------
 Elementwise activation functions for the ELM hidden layer.
 
-Each function takes a numpy array Z of shape (n, m) and returns
-an array of the same shape with the activation applied elementwise.
+Each function takes Z of shape (n, m) and returns the same shape.
+No library calls beyond numpy elementwise operations.
 """
 
 import numpy as np
 
 
 def tanh(Z):
-    """Hyperbolic tangent. Maps R -> (-1, +1)."""
+    """tanh(z) — maps R -> (-1, +1). Smooth and bounded."""
     return np.tanh(Z)
 
 
 def relu(Z):
-    """Rectified Linear Unit. Maps R -> [0, +inf)."""
+    """ReLU(z) = max(0, z) — maps R -> [0, +inf)."""
     return np.maximum(0.0, Z)
 
 
 def sigmoid(Z):
-    """Logistic sigmoid. Maps R -> (0, 1)."""
+    """sigmoid(z) = 1/(1+e^{-z}) — maps R -> (0, 1)."""
     return 1.0 / (1.0 + np.exp(-Z))
 
 
-ACTIVATIONS = {
-    'tanh': tanh,
-    'relu': relu,
-    'sigmoid': sigmoid,
-}
+ACTIVATIONS = {'tanh': tanh, 'relu': relu, 'sigmoid': sigmoid}
 
 
 def get_activation(name):
-    """
-    Return activation function by name.
-
-    Parameters
-    ----------
-    name : str
-        One of 'tanh', 'relu', 'sigmoid'.
-
-    Returns
-    -------
-    fn : callable
-    """
+    """Return activation function by name string."""
     if name not in ACTIVATIONS:
-        raise ValueError(
-            f"Unknown activation '{name}'. "
-            f"Choose from: {list(ACTIVATIONS.keys())}"
-        )
+        raise ValueError(f"Unknown activation '{name}'. "
+                         f"Choose from: {list(ACTIVATIONS)}")
     return ACTIVATIONS[name]
