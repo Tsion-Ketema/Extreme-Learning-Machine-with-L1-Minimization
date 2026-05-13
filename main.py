@@ -16,6 +16,8 @@ where f* is approximated by running A1 for 5000 iterations.
 Target: gap <= 1e-2 (acceptable), gap <= 1e-4 (good).
 """
 
+from viz.plots import fig5_fair_comparison
+from utils.experiments import experiment_fair_time_comparison
 import numpy as np
 
 from utils.data import load_cup, train_test_split
@@ -113,4 +115,24 @@ res_comp = experiment_a1_vs_a2(
 )
 print("[4/4] A1 vs A2 experiment finished")
 fig4_comparison(res_comp)
+# ── Experiment 5: Fair time-based comparison ───────────────────────────────────
+print("\n[5/5] Fair time-based comparison started")
+
+res_fair = experiment_fair_time_comparison(
+    Input_tr, Y_tr,
+    m=100, seed=0, eps=1e-6, mu=1e-3, tol=1e-8,
+    max_iter_a1=500, debug=True
+)
+print("[5/5] Fair time-based comparison finished")
+fig5_fair_comparison(res_fair)
+
+# Print fair comparison table
+print("\n" + "="*60)
+print("FAIR COMPARISON: Equal wall-clock time budget")
+print("="*60)
+print(f"{'Target':<12} {'A1 gap':>12} {'A1 time':>10} {'A2 gap':>12} {'A2 iters':>12} {'A2 time':>10}")
+print("-"*70)
+for r in res_fair:
+    print(f"{r['target']:<12} {r['a1_gap']:>12.2e} {r['a1_time']:>10.3f}s "
+          f"{r['a2_gap']:>12.2e} {r['a2_iters']:>12d} {r['a2_time']:>10.3f}s")
 print('\nDone. Figures saved to ./figures/')

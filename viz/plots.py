@@ -29,7 +29,7 @@ def _save(fig, name):
     print(f'  Saved {path}')
 
 
-def fig1_gap_convergence(results, filename='fig1_gap_convergence.pdf'):
+def fig1_gap_convergence(results, filename='fig1_gap_convergence.png'):
     """
     Semi-log plot of relative gap vs iteration for A1 (left) and A2 (right).
 
@@ -76,7 +76,7 @@ def fig1_gap_convergence(results, filename='fig1_gap_convergence.pdf'):
     _save(fig, filename)
 
 
-def fig2_params(results, filename='fig2_params.pdf'):
+def fig2_params(results, filename='fig2_params.png'):
     """
     Final relative gap vs eps (A1, left) and mu (A2, right).
     Shows parameter sensitivity for both algorithms.
@@ -115,7 +115,7 @@ def fig2_params(results, filename='fig2_params.pdf'):
     _save(fig, filename)
 
 
-def fig3_scaling(results, filename='fig3_scaling.pdf'):
+def fig3_scaling(results, filename='fig3_scaling.png'):
     """
     Log-log plot of CPU time vs m.
     A1 should follow slope-2 (O(nm^2)), A2 slope-1 (O(nm)).
@@ -155,7 +155,7 @@ def fig3_scaling(results, filename='fig3_scaling.pdf'):
     _save(fig, filename)
 
 
-def fig4_comparison(results, filename='fig4_comparison.pdf'):
+def fig4_comparison(results, filename='fig4_comparison.png'):
     """
     Bar chart of final relative gap per target for A1 and A2.
     Lower gap = better solution = shorter bar.
@@ -202,3 +202,43 @@ def print_comparison_table(results):
               f"{r['a1_time']:>8.3f}s "
               f"{r['a2_gap']:>10.2e} {r['a2_n_iter']:>9d} "
               f"{r['a2_time']:>8.3f}s")
+
+
+def fig5_fair_comparison(results, filename='fig5_fair_comparison.png'):
+    """
+    Bar chart comparing final relative gap under equal TIME budget,
+    not equal iteration budget.
+    """
+    targets = [r['target'] for r in results]
+    a1_gaps = [max(r['a1_gap'], 1e-12) for r in results]
+    a2_gaps = [max(r['a2_gap'], 1e-12) for r in results]
+    a2_iters = [r['a2_iters'] for r in results]
+
+    x = np.arange(len(targets))
+    w = 0.35
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.bar(x - w/2, a1_gaps, w, label='A1 (500 iters)',
+           color='#1f77b4', alpha=0.85)
+    ax.bar(x + w/2, a2_gaps, w,
+           label=f'A2 (~{int(np.mean(a2_iters)/1000)}k iters)',
+           color='#d62728', alpha=0.85, hatch='///')
+
+    ax.set_yscale('log')
+    ax.axhline(1e-2, color='gray', linestyle=':', linewidth=0.8,
+               label='gap = 1e-2 (acceptable)')
+    ax.axhline(1e-4, color='gray', linestyle='-.', linewidth=0.8,
+               label='gap = 1e-4 (good)')
+    ax.set_xticks(x)
+    ax.set_xticklabels(targets)
+    ax.set_ylabel('Final relative gap (log scale)')
+    ax.set_title('Fair comparison: equal wall-clock time budget')
+    ax.legend(fontsize=8)
+    ax.grid(True, axis='y', alpha=0.3)
+
+    # Add annotation explaining the fairness
+    ax.text(0.5, -0.15,
+            f'A2 allowed ~{int(np.mean(a2_iters)/500)}× more iterations to match A1\'s runtime',
+            transform=ax.transAxes, ha='center', fontsize=9, style='italic')
+
+    _save(fig, filename)

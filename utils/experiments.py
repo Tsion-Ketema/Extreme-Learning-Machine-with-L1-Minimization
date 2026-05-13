@@ -436,3 +436,94 @@ def experiment_a1_vs_a2(Input_tr, Y_tr, Input_te, Y_te,
                 f"      A2 train L1={a2_train:.6f}, test L1={a2_test:.6f}, gap={a2_gap:.2e}")
 
     return {'rows': rows, 'm': m}
+
+
+def experiment_fair_time_comparison(Input_tr, Y_tr, m=100, seed=0,
+                                    eps=1e-6, mu=1e-3, tol=1e-8,
+                                    max_iter_a1=500, debug=True):
+    """
+    Fair comparison: give A2 the same wall-clock time as A1.
+
+    This addresses the reviewer's concern that comparing algorithms
+    at equal iteration count is unfair when per-iteration costs differ.
+    """
+    if debug:
+        print("\n[experiment_fair_time_comparison]")
+        print(f"  Building ELM feature matrix with m={m}, seed={seed}")
+
+    W1 = random_hidden_weights(m, Input_tr.shape[1], seed=seed)
+    X = build_feature_matrix(Input_tr, W1)
+
+    results = []
+
+    # Compute f* once for all targets using long A1 run
+    f_stars = []
+    if debug:
+        print("  Computing f* for all targets...")
+
+    for t in range(4):
+        _, h_star = irls(X, Y_tr[:, t], eps=eps, tol=tol,
+                         max_iter=5000, debug=False)
+        f_stars.append(h_star['loss'][-1])
+        if debug:
+            print(f"    {TARGETS[t]}: f* = {f_stars[-1]:.6f}")
+
+    for t in range(4):
+        y = Y_tr[:, t]
+
+        if debug:
+            print(f"\n  Target {t+1}/4: {TARGETS[t]}")
+
+        # Step 1: Run A1 and record its total time
+        _, h_a1 = irls(X, y, eps=eps, tol=tol,
+                       max_iter=max_iter_a1, debug=False)
+        a1_time = h_a1['time_sec']
+        a1_loss = h_a1['loss'][-1]
+        a1_iters = h_a1['n_iter']
+
+        if debug:
+            print(
+                f"    A1 finished: {a1_iters} iters in {a1_time:.3f}s, loss={a1_loss:.6f}")
+
+        # Step 2: Estimate A2 cost per iteration
+        _, h_test = smoothed_gradient(X, y, mu=mu, tol=tol,
+                                      max_iter=10, debug=False)
+        cost_per_iter = h_test['time_sec'] / 10
+
+        # Step 3: Run A2 for as many iterations as fit in a1_time
+        max_iter_a2 = max(1, int(a1_time / cost_per_iter))
+
+        if debug:
+            print(f"    A2 cost per iter ~ {cost_per_iter:.6f}s")
+            print(f"    Allowing A2 up to {max_iter_a2} iterations")
+
+        _, h_a2 = smoothed_gradient(X, y, mu=mu, tol=tol,
+                                    max_iter=max_iter_a2, debug=False)
+        a2_loss = h_a2['loss'][-1]
+        a2_time = h_a2['time_sec']
+        a2_iters = h_a2['n_iter']
+
+        a1_gap = (a1_loss - f_stars[t]) / max(abs(f_stars[t]), 1e-14)
+        a2_gap = (a2_loss - f_stars[t]) / max(abs(f_stars[t]), 1e-14)
+
+        results.append({
+            'target': TARGETS[t],
+            'f_star': f_stars[t],
+            'a1_time': a1_time,
+            'a1_loss': a1_loss,
+            'a1_gap': a1_gap,
+            'a1_iters': a1_iters,
+            'a2_time': a2_time,
+            'a2_loss': a2_loss,
+            'a2_gap': a2_gap,
+            'a2_iters': a2_iters,
+        })
+
+        if debug:
+            print(f"    Fair comparison result:")
+            print(
+                f"      A1 ({a1_iters} iters): gap={a1_gap:.2e}, time={a1_time:.3f}s")
+            print(
+                f"      A2 ({a2_iters} iters): gap={a2_gap:.2e}, time={a2_time:.3f}s")
+
+    return results
