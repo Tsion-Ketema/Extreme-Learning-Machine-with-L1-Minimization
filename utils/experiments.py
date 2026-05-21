@@ -8,7 +8,9 @@ import numpy as np
 import time
 
 from core.elm import build_feature_matrix, random_hidden_weights
-from core.solvers import irls, smoothed_gradient, l1_loss, compute_gap
+from core.solvers import (irls, smoothed_gradient, fast_smoothed_gradient,
+                          l1_loss, smooth_l1_loss, compute_gap,
+                          compute_smooth_gap, compute_nesterov_mu)
 
 TARGETS = ['TARGET_1', 'TARGET_2', 'TARGET_3', 'TARGET_4']
 
@@ -80,15 +82,15 @@ def experiment_convergence(Input_tr, Y_tr, m=100, eps=1e-6, mu=1e-3,
             print(f"      time       = {h1['time_sec']:.3f}s")
 
         if debug:
-            print("    Step 3: Running A2 — Smoothed Gradient...")
+            print("    Step 3: Running A2-FGM — Nesterov smoothed gradient...")
 
-        _, h2 = smoothed_gradient(
+        _, h2 = fast_smoothed_gradient(
             X, y,
             mu=mu,
             tol=tol,
             max_iter=max_iter,
             debug=debug,
-            name=f"A2 {TARGETS[t]}"
+            name=f"A2-FGM {TARGETS[t]}"
         )
 
         h2 = compute_gap(h2, f_star)
@@ -99,7 +101,7 @@ def experiment_convergence(Input_tr, Y_tr, m=100, eps=1e-6, mu=1e-3,
         a2_conv.append(h2['converged'])
 
         if debug:
-            print(f"    A2 done:")
+            print(f"    A2-FGM done:")
             print(f"      final loss = {h2['loss'][-1]:.6f}")
             print(f"      final gap  = {h2['gap'][-1]:.2e}")
             print(f"      iterations = {h2['n_iter']}")
@@ -192,10 +194,10 @@ def experiment_params(Input_tr, Y_tr, m=100, seed=0,
 
     for mu in mu_values:
         if debug:
-            print(f"\n  Testing A2 mu={mu}")
+            print(f"\n  Testing A2-FGM mu={mu}")
 
         for t in range(4):
-            w, h = smoothed_gradient(
+            w, h = fast_smoothed_gradient(
                 X, Y_tr[:, t],
                 mu=mu,
                 tol=tol,
@@ -289,13 +291,13 @@ def experiment_scaling_m(Input_tr, Y_tr, m_values=None, seed=0,
 
         for rep in range(n_repeat):
             if debug:
-                print(f"    A2 repeat {rep + 1}/{n_repeat}")
+                print(f"    A2-FGM repeat {rep + 1}/{n_repeat}")
 
             t0 = time.perf_counter()
             tgt_l, tgt_n = [], []
 
             for t in range(4):
-                w, h = smoothed_gradient(
+                w, h = fast_smoothed_gradient(
                     X, Y_tr[:, t],
                     mu=mu,
                     tol=tol,
@@ -311,7 +313,7 @@ def experiment_scaling_m(Input_tr, Y_tr, m_values=None, seed=0,
             r2_niters.append(np.mean(tgt_n))
 
             if debug:
-                print(f"      A2 repeat time={elapsed:.3f}s")
+                print(f"      A2-FGM repeat time={elapsed:.3f}s")
 
         a1_times.append(np.mean(r1_times))
         a1_times_std.append(np.std(r1_times))
@@ -326,7 +328,7 @@ def experiment_scaling_m(Input_tr, Y_tr, m_values=None, seed=0,
         if debug:
             print(f"  Finished m={m}")
             print(f"    A1 avg time={a1_times[-1]:.3f}s")
-            print(f"    A2 avg time={a2_times[-1]:.3f}s")
+            print(f"    A2-FGM avg time={a2_times[-1]:.3f}s")
 
     return {
         'm_values': m_values,
@@ -394,15 +396,15 @@ def experiment_a1_vs_a2(Input_tr, Y_tr, Input_te, Y_te,
         a1_gap = (a1_train - f_star) / max(abs(f_star), 1e-14)
 
         if debug:
-            print("    Running A2...")
+            print("    Running A2-FGM...")
 
-        w2, h2 = smoothed_gradient(
+        w2, h2 = fast_smoothed_gradient(
             X_tr, y_tr,
             mu=mu,
             tol=tol,
             max_iter=max_iter,
             debug=debug,
-            name=f"A2 {TARGETS[t]}"
+            name=f"A2-FGM {TARGETS[t]}"
         )
 
         a2_train = l1_loss(X_tr, w2, y_tr)
@@ -433,7 +435,7 @@ def experiment_a1_vs_a2(Input_tr, Y_tr, Input_te, Y_te,
             print(
                 f"      A1 train L1={a1_train:.6f}, test L1={a1_test:.6f}, gap={a1_gap:.2e}")
             print(
-                f"      A2 train L1={a2_train:.6f}, test L1={a2_test:.6f}, gap={a2_gap:.2e}")
+                f"      A2-FGM train L1={a2_train:.6f}, test L1={a2_test:.6f}, gap={a2_gap:.2e}")
 
     return {'rows': rows, 'm': m}
 
@@ -442,7 +444,7 @@ def experiment_fair_time_comparison(Input_tr, Y_tr, m=100, seed=0,
                                     eps=1e-6, mu=1e-3, tol=1e-8,
                                     max_iter_a1=500, debug=True):
     """
-    Fair comparison: give A2 the same wall-clock time as A1.
+    Fair comparison: give A2-FGM the same wall-clock time as A1.
 
     This addresses the reviewer's concern that comparing algorithms
     at equal iteration count is unfair when per-iteration costs differ.
@@ -485,19 +487,19 @@ def experiment_fair_time_comparison(Input_tr, Y_tr, m=100, seed=0,
             print(
                 f"    A1 finished: {a1_iters} iters in {a1_time:.3f}s, loss={a1_loss:.6f}")
 
-        # Step 2: Estimate A2 cost per iteration
-        _, h_test = smoothed_gradient(X, y, mu=mu, tol=tol,
+        # Step 2: Estimate A2-FGM cost per iteration
+        _, h_test = fast_smoothed_gradient(X, y, mu=mu, tol=None,
                                       max_iter=10, debug=False)
         cost_per_iter = h_test['time_sec'] / 10
 
-        # Step 3: Run A2 for as many iterations as fit in a1_time
+        # Step 3: Run A2-FGM for as many iterations as fit in a1_time
         max_iter_a2 = max(1, int(a1_time / cost_per_iter))
 
         if debug:
-            print(f"    A2 cost per iter ~ {cost_per_iter:.6f}s")
-            print(f"    Allowing A2 up to {max_iter_a2} iterations")
+            print(f"    A2-FGM cost per iter ~ {cost_per_iter:.6f}s")
+            print(f"    Allowing A2-FGM up to {max_iter_a2} iterations")
 
-        _, h_a2 = smoothed_gradient(X, y, mu=mu, tol=tol,
+        _, h_a2 = fast_smoothed_gradient(X, y, mu=mu, tol=None,
                                     max_iter=max_iter_a2, debug=False)
         a2_loss = h_a2['loss'][-1]
         a2_time = h_a2['time_sec']
@@ -524,6 +526,211 @@ def experiment_fair_time_comparison(Input_tr, Y_tr, m=100, seed=0,
             print(
                 f"      A1 ({a1_iters} iters): gap={a1_gap:.2e}, time={a1_time:.3f}s")
             print(
-                f"      A2 ({a2_iters} iters): gap={a2_gap:.2e}, time={a2_time:.3f}s")
+                f"      A2-FGM ({a2_iters} iters): gap={a2_gap:.2e}, time={a2_time:.3f}s")
+
+    return results
+
+
+
+
+def experiment_momentum_comparison(Input_tr, Y_tr, m=100, seed=0,
+                                   eps=1e-6, mu=1e-1, tol=1e-8,
+                                   max_iter=500, debug=True):
+    """
+    Compare plain A2-GD and accelerated A2-FGM using the same feature matrix,
+    same smoothing parameter, and same iteration budget.
+
+    This isolates the effect of Nesterov momentum without changing the rest of
+    the experimental setup.
+    """
+    if debug:
+        print("\n[experiment_momentum_comparison]")
+        print(f"  Building ELM feature matrix with m={m}, seed={seed}")
+        print(f"  Comparing A2-GD and A2-FGM with the same mu={mu:.1e}")
+
+    W1 = random_hidden_weights(m, Input_tr.shape[1], seed=seed)
+    X = build_feature_matrix(Input_tr, W1)
+
+    gd_gaps, fgm_gaps = [], []
+    gd_niters, fgm_niters = [], []
+    f_stars = []
+
+    for t in range(4):
+        y = Y_tr[:, t]
+
+        if debug:
+            print(f"\n  Target {t+1}/4: {TARGETS[t]}")
+            print("    Computing f* using long A1 run...")
+
+        _, h_star = irls(
+            X, y,
+            eps=eps,
+            tol=tol,
+            max_iter=5000,
+            debug=False,
+            name=f"f* {TARGETS[t]}"
+        )
+        f_star = h_star['loss'][-1]
+        f_stars.append(f_star)
+
+        if debug:
+            print(f"    f* ≈ {f_star:.6f}")
+            print("    Running A2-GD...")
+
+        _, h_gd = smoothed_gradient(
+            X, y,
+            mu=mu,
+            tol=tol,
+            max_iter=max_iter,
+            debug=False,
+            name=f"A2-GD {TARGETS[t]}"
+        )
+        h_gd = compute_gap(h_gd, f_star)
+
+        if debug:
+            print("    Running A2-FGM...")
+
+        _, h_fgm = fast_smoothed_gradient(
+            X, y,
+            mu=mu,
+            tol=tol,
+            max_iter=max_iter,
+            debug=False,
+            name=f"A2-FGM {TARGETS[t]}"
+        )
+        h_fgm = compute_gap(h_fgm, f_star)
+
+        gd_gaps.append(np.array(h_gd['gap']))
+        fgm_gaps.append(np.array(h_fgm['gap']))
+        gd_niters.append(h_gd['n_iter'])
+        fgm_niters.append(h_fgm['n_iter'])
+
+        if debug:
+            print("    Final gaps:")
+            print(f"      A2-GD   gap={h_gd['gap'][-1]:.2e}, iters={h_gd['n_iter']}")
+            print(f"      A2-FGM  gap={h_fgm['gap'][-1]:.2e}, iters={h_fgm['n_iter']}")
+
+    return {
+        'target_names': TARGETS,
+        'm': m,
+        'mu': mu,
+        'f_stars': f_stars,
+        'gd_gaps': gd_gaps,
+        'fgm_gaps': fgm_gaps,
+        'gd_n_iters': gd_niters,
+        'fgm_n_iters': fgm_niters,
+    }
+
+
+def experiment_a2_theory(Input_tr, Y_tr, m=100, seed=0,
+                         target_eps=1e-4, max_iter=100_000, debug=True):
+    """
+    Theory-guided A2 experiment using Nesterov fast gradient.
+
+    This experiment is intentionally separated from the practical A1-vs-A2
+    plots. Here mu is not tuned by hand. It is computed from the desired
+    tolerance epsilon using
+
+        mu = (epsilon / (2*n))^2,
+
+    where n is the number of training samples. For the sqrt smoothing
+    f_mu(w) = sum_i sqrt((x_i^T w - y_i)^2 + mu), this choice gives
+
+        f_mu(w) - f(w) <= n*sqrt(mu) <= epsilon/2.
+
+    The theorem applies to the smoothed objective f_mu, so this function
+    records both:
+        1. the original L1 gap, for project evaluation;
+        2. the smoothed-objective gap, for checking the Nesterov trend.
+    """
+    if debug:
+        print("\n[experiment_a2_theory]")
+        print(f"  Building ELM feature matrix with m={m}, seed={seed}")
+
+    W1 = random_hidden_weights(m, Input_tr.shape[1], seed=seed)
+    X = build_feature_matrix(Input_tr, W1)
+    n = X.shape[0]
+
+    mu = compute_nesterov_mu(n, target_eps)
+    op_norm_sq = float(np.linalg.norm(X, 2) ** 2)
+    L = op_norm_sq / np.sqrt(mu)
+    alpha = 1.0 / L
+    bias_abs = n * np.sqrt(mu)
+
+    if debug:
+        print(f"  n={n}, target_eps={target_eps:.1e}, mu={mu:.4e}")
+        print(f"  ||X||_2^2={op_norm_sq:.4e}, L=||X||_2^2/sqrt(mu)={L:.4e}")
+        print(f"  alpha=1/L={alpha:.4e}")
+        print(f"  Smoothing bias bound: n*sqrt(mu) = {bias_abs:.4e}")
+
+    results = []
+
+    for t in range(4):
+        y = Y_tr[:, t]
+
+        if debug:
+            print(f"\n  Target {t+1}/4: {TARGETS[t]}")
+            print("    Computing f* for original L1 problem using long A1 run...")
+
+        w_star, h_star = irls(X, y, eps=1e-6, tol=1e-10,
+                              max_iter=5000, debug=False)
+        f_star = l1_loss(X, w_star, y)
+        f_mu_at_w_star = smooth_l1_loss(X, w_star, y, mu)
+
+        if debug:
+            print(f"    f* ≈ {f_star:.6f}")
+            print(f"    f_mu(w_A1*) ≈ {f_mu_at_w_star:.6f}")
+            print(f"    Running A2-FGM, max_iter={max_iter}")
+
+        _, h = fast_smoothed_gradient(
+            X, y,
+            mu=mu,
+            tol=None,              # important: no premature delta-based stop
+            max_iter=max_iter,
+            debug=debug,
+            name=f"A2-FGM {TARGETS[t]}"
+        )
+
+        h = compute_gap(h, f_star)
+        h = compute_smooth_gap(h, f_mu_at_w_star)  # compare against f_mu at A1 approximate minimizer
+
+        l1_gaps = np.array(h['gap'])
+        smooth_gaps = np.array(h['smooth_gap'])
+        smooth_losses = np.array(h['smooth_loss'])
+
+        # Reference O(1/k^2) trend for visual comparison.
+        if len(smooth_gaps) > 0:
+            k_arr = np.arange(1, len(smooth_gaps) + 1)
+            start = max(float(smooth_gaps[0]), 1e-16)
+            theory_smooth_gaps = start / (k_arr ** 2)
+        else:
+            theory_smooth_gaps = np.array([])
+
+        rel_bias_floor = bias_abs / max(abs(f_star), 1e-14)
+
+        results.append({
+            'target': TARGETS[t],
+            'f_star': f_star,
+            'f_mu_ref': h.get('f_mu_ref'),
+            'f_mu_at_w_star': f_mu_at_w_star,
+            'l1_gaps': l1_gaps,
+            'gaps': l1_gaps,  # backward-compatible name for plotting
+            'smooth_gaps': smooth_gaps,
+            'smooth_losses': smooth_losses,
+            'theory_smooth_gaps': theory_smooth_gaps,
+            'n_iter': h['n_iter'],
+            'mu': mu,
+            'L': L,
+            'alpha': alpha,
+            'bias_abs': bias_abs,
+            'relative_bias_floor': rel_bias_floor,
+            'final_l1_gap': l1_gaps[-1] if len(l1_gaps) > 0 else float('nan'),
+            'final_smooth_gap': smooth_gaps[-1] if len(smooth_gaps) > 0 else float('nan'),
+        })
+
+        if debug:
+            print(f"    Final original L1 gap = {results[-1]['final_l1_gap']:.2e}")
+            print(f"    Final smoothed gap    = {results[-1]['final_smooth_gap']:.2e}")
+            print(f"    Relative smoothing floor = {rel_bias_floor:.2e}")
 
     return results
