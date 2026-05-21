@@ -4,10 +4,13 @@ viz/plots.py
 All figures for the report. Primary metric is the RELATIVE GAP.
 
 Figures:
-    fig1_gap_convergence.pdf  — gap vs iteration (semi-log) for A1 and A2
-    fig2_params.pdf           — final gap vs eps (A1) and mu (A2)
+    fig1_gap_convergence.pdf  — gap vs iteration (semi-log) for A1 and A2-FGM
+    fig2_params.pdf           — final gap vs eps (A1) and mu (A2-FGM)
     fig3_scaling.pdf          — CPU time vs m, log-log with reference slopes
-    fig4_comparison.pdf       — final gap: A1 vs A2 per target (bar chart)
+    fig4_comparison.pdf       — final gap: A1 vs A2-FGM per target (bar chart)
+    fig5_fair.pdf           — final gap vs iteration (semi-log) for A1 and A2-FGM, fair-time comparison
+    fig6_theory.pdf           — final gap vs iteration (semi-log) for A1 and A2-FGM, theory-guided
+    fig7_momentum.pdf         — final gap vs iteration (semi-log) for A1 and A2-FGM, momentum-guided
 """
 
 import os
@@ -31,7 +34,7 @@ def _save(fig, name):
 
 def fig1_gap_convergence(results, filename='fig1_gap_convergence.png'):
     """
-    Semi-log plot of relative gap vs iteration for A1 (left) and A2 (right).
+    Semi-log plot of relative gap vs iteration for A1 (left) and A2-FGM (right).
 
     A straight line on a semi-log scale confirms the linear convergence
     rate predicted by Daubechies et al. 2010, Theorem 3.1 (for A1).
@@ -62,7 +65,7 @@ def fig1_gap_convergence(results, filename='fig1_gap_convergence.png'):
 
     for ax, title in zip([ax1, ax2],
                          [f'A1 — IRLS  (m={results["m"]})',
-                          f'A2 — Smoothed gradient  (m={results["m"]})']):
+                          f'A2-FGM — Nesterov  (m={results["m"]})']):
         ax.set_xlabel('Iteration $k$')
         ax.set_ylabel(r'Relative gap  $(f(w^{(k)})-f^*)/|f^*|$')
         ax.set_title(title)
@@ -106,9 +109,9 @@ def fig2_params(results, filename='fig2_params.png'):
 
     ax2.set_xticks(mu_x)
     ax2.set_xticklabels(mu_lb, fontsize=8)
-    ax2.set_xlabel(r'Smoothing parameter $\mu$ (A2)')
+    ax2.set_xlabel(r'Smoothing parameter $\mu$ (A2-FGM)')
     ax2.set_ylabel('Final relative gap')
-    ax2.set_title(r'A2: final gap vs $\mu$')
+    ax2.set_title(r'A2-FGM: final gap vs $\mu$')
     ax2.legend(fontsize=8)
     ax2.grid(True, alpha=0.3)
 
@@ -133,7 +136,7 @@ def fig3_scaling(results, filename='fig3_scaling.png'):
                     a1_t + results['a1_std'], alpha=0.15, color='#1f77b4')
 
     ax.loglog(m_vals, a2_t, 's--', color='#d62728', linewidth=1.5,
-              label='A2 — Smoothed gradient')
+              label='A2-FGM — Nesterov')
     ax.fill_between(m_vals,
                     np.maximum(a2_t - results['a2_std'], 1e-9),
                     a2_t + results['a2_std'], alpha=0.15, color='#d62728')
@@ -148,7 +151,7 @@ def fig3_scaling(results, filename='fig3_scaling.png'):
 
     ax.set_xlabel('Hidden neurons $m$')
     ax.set_ylabel('Wall-clock time (s)')
-    ax.set_title('CPU time scaling: A1 vs A2')
+    ax.set_title('CPU time scaling: A1 vs A2-FGM')
     ax.legend(fontsize=9)
     ax.grid(True, which='both', alpha=0.3)
 
@@ -171,7 +174,7 @@ def fig4_comparison(results, filename='fig4_comparison.png'):
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.bar(x - w/2, a1_gaps, w, label='A1 — IRLS',
            color='#1f77b4', alpha=0.85)
-    ax.bar(x + w/2, a2_gaps, w, label='A2 — Smoothed gradient',
+    ax.bar(x + w/2, a2_gaps, w, label='A2-FGM — Nesterov',
            color='#d62728', alpha=0.85, hatch='///')
 
     ax.set_yscale('log')
@@ -182,7 +185,7 @@ def fig4_comparison(results, filename='fig4_comparison.png'):
     ax.set_xticks(x)
     ax.set_xticklabels(targets)
     ax.set_ylabel('Final relative gap  (log scale)')
-    ax.set_title(f'A1 vs A2: final relative gap  (m = {results["m"]})')
+    ax.set_title(f'A1 vs A2-FGM: final relative gap  (m = {results["m"]})')
     ax.legend(fontsize=8)
     ax.grid(True, axis='y', alpha=0.3)
 
@@ -194,7 +197,7 @@ def print_comparison_table(results):
     rows = results['rows']
     print(f"\n  {'Target':<10} {'f*':>10} "
           f"{'A1 gap':>10} {'A1 iters':>9} {'A1 time':>8} "
-          f"{'A2 gap':>10} {'A2 iters':>9} {'A2 time':>8}")
+          f"{'A2-FGM gap':>12} {'A2-FGM iters':>13} {'A2-FGM time':>12}")
     print('  ' + '-' * 80)
     for r in rows:
         print(f"  {r['target']:<10} {r['f_star']:>10.2f} "
@@ -221,7 +224,7 @@ def fig5_fair_comparison(results, filename='fig5_fair_comparison.png'):
     ax.bar(x - w/2, a1_gaps, w, label='A1 (500 iters)',
            color='#1f77b4', alpha=0.85)
     ax.bar(x + w/2, a2_gaps, w,
-           label=f'A2 (~{int(np.mean(a2_iters)/1000)}k iters)',
+           label=f'A2-FGM (~{int(np.mean(a2_iters)/1000)}k iters)',
            color='#d62728', alpha=0.85, hatch='///')
 
     ax.set_yscale('log')
@@ -238,7 +241,86 @@ def fig5_fair_comparison(results, filename='fig5_fair_comparison.png'):
 
     # Add annotation explaining the fairness
     ax.text(0.5, -0.15,
-            f'A2 allowed ~{int(np.mean(a2_iters)/500)}× more iterations to match A1\'s runtime',
+            f'A2-FGM allowed ~{int(np.mean(a2_iters)/500)}× more iterations to match A1\'s runtime',
             transform=ax.transAxes, ha='center', fontsize=9, style='italic')
+
+    _save(fig, filename)
+
+
+def fig7_momentum_comparison(results, filename='fig7_momentum_comparison.png'):
+    """
+    Compare plain A2-GD with accelerated A2-FGM/Nesterov.
+
+    A2-GD and A2-FGM use the same feature matrix, the same smoothing parameter
+    mu, and the same iteration budget. The only intended difference is the
+    Nesterov momentum step.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    axes = axes.ravel()
+
+    for t in range(4):
+        ax = axes[t]
+        name = results['target_names'][t]
+
+        gd = np.maximum(np.array(results['gd_gaps'][t]), 1e-12)
+        fgm = np.maximum(np.array(results['fgm_gaps'][t]), 1e-12)
+
+        ax.semilogy(np.arange(len(gd)), gd,
+                    linestyle='--', linewidth=1.5,
+                    label=f'A2-GD ({results["gd_n_iters"][t]} iters)')
+        ax.semilogy(np.arange(len(fgm)), fgm,
+                    linestyle='-.', linewidth=1.5,
+                    label=f'A2-FGM/Nesterov ({results["fgm_n_iters"][t]} iters)')
+
+        ax.axhline(1e-2, color='gray', linestyle=':', linewidth=0.8,
+                   label='gap = 1e-2')
+        ax.axhline(1e-4, color='gray', linestyle='-.', linewidth=0.8,
+                   label='gap = 1e-4')
+
+        ax.set_title(f'{name}  (mu={results["mu"]:.1e})')
+        ax.set_xlabel('Iteration k')
+        ax.set_ylabel('Relative gap')
+        ax.grid(True, which='both', alpha=0.3)
+        ax.legend(fontsize=7)
+
+    fig.suptitle('Momentum effect: A2-GD vs A2-FGM/Nesterov', fontsize=14)
+    _save(fig, filename)
+
+
+def fig6_a2_theory(results, filename='fig6_a2_theory.png'):
+    """
+    Compare A2-FGM observed smoothed-objective decrease with a 1/k^2
+    reference curve. The plot title also reports the final original L1 gap.
+
+    Important: Nesterov's fast-gradient theorem applies to the smoothed
+    objective f_mu, so the main blue curve here uses the smoothed gap, not
+    only the original L1 gap.
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    axes = axes.ravel()
+
+    for idx, r in enumerate(results):
+        ax = axes[idx]
+        smooth_gaps = np.maximum(np.array(r['smooth_gaps']), 1e-16)
+        l1_gaps = np.maximum(np.array(r['l1_gaps']), 1e-16)
+        theory = np.maximum(np.array(r['theory_smooth_gaps']), 1e-16)
+        k = np.arange(1, len(smooth_gaps) + 1)
+
+        ax.loglog(k, smooth_gaps, linewidth=1.5,
+                  label='Observed smoothed gap')
+        ax.loglog(k, theory, '--', linewidth=1.2,
+                  label=r'Reference $C/k^2$')
+        ax.loglog(k, l1_gaps, ':', linewidth=1.2,
+                  label='Original L1 gap')
+        ax.axhline(1e-4, color='gray', linestyle='-.', linewidth=0.8,
+                   label='target gap = 1e-4')
+        ax.axhline(max(r['relative_bias_floor'], 1e-16), color='gray',
+                   linestyle=':', linewidth=0.8, label='smoothing floor')
+
+        ax.set_title(f"{r['target']}  (mu={r['mu']:.1e}, final L1 gap={r['final_l1_gap']:.1e})")
+        ax.set_xlabel('Iteration k')
+        ax.set_ylabel('Relative gap')
+        ax.grid(True, which='both', alpha=0.3)
+        ax.legend(fontsize=7)
 
     _save(fig, filename)
